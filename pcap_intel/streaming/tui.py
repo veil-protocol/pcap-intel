@@ -2395,98 +2395,37 @@ class PcapIntelApp(App):
             return
 
         lines = []
-        internal_prefixes = ('10.', '192.168.', '172.')
 
-        # === AGGREGATE FROM ALL DATA SOURCES ===
+        # === AGGREGATE: Unified service metrics ===
+        # Combines: flows, host services, alerts into single view
+        # Key: (port, service_name) -> {flows: N, hosts: set()}
 
-        # PROTOCOLS: Combine flows + alerts + services
-        proto_counts = {}
-        egress_set = set()
+        services = {}  # (port, name) -> {"flows": int, "hosts": set()}
 
-        # From FLOWS
+        # From FLOWS - count traffic per service
         for f in self.flows.values():
             port = f.get("port", 0)
-            src = f.get("src", "")
-            dst = f.get("dst", "")
-            raw_proto = f.get("proto", "").upper()  # TCP/UDP/ICMP
+            if port:
+                svc = self._get_service_name(port)
+                key = (port, svc)
+                if key not in services:
+                    services[key] = {"flows": 0, "hosts": set()}
+                services[key]["flows"] += 1
 
-            # Get service name from port
-            label = self._get_service_name(port) if port else None
-            if label:
-                proto_counts[label] = proto_counts.get(label, 0) + 1
-
-            # Also count raw L4 protocols (ICMP especially)
-            if raw_proto == "ICMP":
-                proto_counts["ICMP"] = proto_counts.get("ICMP", 0) + 1
-
-            # Track egress
-            if src.startswith(internal_prefixes) and dst and not dst.startswith(internal_prefixes) and not dst.startswith(('224.', '239.')):
-                if label:
-                    egress_set.add(label)
-                if raw_proto == "ICMP":
-                    egress_set.add("ICMP")
-
-        # From HOSTS services
+        # From HOSTS - track which hosts have each service
         for ip, data in self.hosts.items():
             for port in data.get("services", set()):
-                label = self._get_service_name(port)
-                if label not in proto_counts:
-                    proto_counts[label] = 0
-                # Don't double count, just ensure it's present
+                svc = self._get_service_name(port)
+                key = (port, svc)
+                if key not in services:
+                    services[key] = {"flows": 0, "hosts": set()}
+                services[key]["hosts"].add(ip)
 
-        # From ALERTS - extract protocols mentioned
-        alert_types = {}
-        for a in self.alerts:
-            atype = a.get("type", "")
-            alert_types[atype] = alert_types.get(atype, 0) + 1
-            # Extract protocols from alert types
-            if "icmp" in atype.lower():
-                proto_counts["ICMP"] = proto_counts.get("ICMP", 0) + 1
-                egress_set.add("ICMP")
-            if "dns" in atype.lower():
-                proto_counts["DNS"] = proto_counts.get("DNS", 0) + 1
-            if "beacon" in atype.lower():
-                # Beaconing usually over HTTPS
-                if "HTTPS" not in proto_counts:
-                    proto_counts["HTTPS"] = 0
-
-        # From CREDS - track compromised protocols
-        cred_protos = set()
+        # From CREDS - track compromised services
+        cred_ports = set()
         for c in self.credentials:
-            if c.protocol:
-                cred_protos.add(c.protocol.upper())
-
-        # === COMPUTE TAO METRICS ===
-
-        # High-value targets (universal detection - any network environment)
-        high_value_targets = []
-        pivot_points = []
-        egress_hosts = []
-
-        for ip, data in self.hosts.items():
-            ports = data.get("services", set())
-            cred_count = len(data.get("creds", []))
-
-            # High-value target detection (universal)
-            role, icon, cat, desc = detect_high_value_target(ports)
-            if cat == "HVT":  # Only Tier 1 crown jewels
-                high_value_targets.append((ip, role, icon, cred_count, desc))
-
-            # Pivot point detection (creds + internal reach)
-            if cred_count > 0:
-                internal_reach = sum(1 for f in self.flows.values()
-                                    if f.get("src") == ip
-                                    and f.get("dst", "").startswith(internal_prefixes))
-                if internal_reach > 0:
-                    pivot_points.append((ip, cred_count, internal_reach))
-
-            # Egress host detection
-            ext_count = sum(1 for f in self.flows.values()
-                          if f.get("src") == ip
-                          and not f.get("dst", "").startswith(internal_prefixes)
-                          and not f.get("dst", "").startswith(('224.', '239.')))
-            if ext_count > 10:
-                egress_hosts.append((ip, ext_count))
+            if c.target_port:
+                cred_ports.add(c.target_port)
 
         # === DISPLAY ===
 
@@ -2496,90 +2435,38 @@ class PcapIntelApp(App):
             width = panel.size.width if panel.size.width > 0 else 35
         except:
             width = 35
-        bar_width = max(8, width - 10)
+
+        # Bar width = width - prefix (port 6 + svc 8 + flows 4 + hosts 3 + spaces 4)
+        bar_width = max(4, width - 26)
 
         # Summary line
-        crit = sum(1 for a in self.alerts if a.get("severity", "").upper() == "CRITICAL")
-        high = sum(1 for a in self.alerts if a.get("severity", "").upper() == "HIGH")
-        hvt_indicator = f" [bold #f0883e]T:{len(high_value_targets)}[/]" if high_value_targets else ""
-        alert_str = f"[bold red]{crit}![/]" if crit else ""
-        alert_str += f"[#ffa657]{high}▲[/]" if high else ""
-        lines.append(f"[bold]{len(self.hosts)}[/]H [bold]{len(self.flows)}[/]F [bold]{len(self.credentials)}[/]C {alert_str}{hvt_indicator}")
-        lines.append(f"[dim]{'─' * width}[/]")
+        lines.append(f"[bold]{len(self.hosts)}[/]H [bold]{len(self.flows)}[/]F [bold]{len(self.credentials)}[/]C")
+        lines.append(f"[dim]{'─' * min(width, 40)}[/]")
 
-        # === HIGH-VALUE TARGETS ===
-        if high_value_targets:
-            lines.append("[bold #f0883e]═ TARGETS ═[/]")
-            for ip, role, icon, creds, desc in high_value_targets[:3]:
-                cn, _, color = self._get_codename(ip)
-                cred_str = f" [red]★{creds}[/]" if creds else ""
-                lines.append(f"{icon}[bold]{role}[/] [{color}]{cn[:14]}[/]{cred_str}")
+        # === SERVICES (unified view) ===
+        lines.append("[bold cyan]═ SERVICES ═[/]")
+        if services:
+            # Sort by total activity (flows + host count)
+            sorted_svcs = sorted(
+                services.items(),
+                key=lambda x: x[1]["flows"] + len(x[1]["hosts"]) * 10,
+                reverse=True
+            )[:15]
 
-        # === PIVOT POINTS ===
-        if pivot_points:
-            lines.append("\n[bold #d29922]═ PIVOTS ═[/]")
-            for ip, creds, reach in sorted(pivot_points, key=lambda x: x[1]*x[2], reverse=True)[:3]:
-                cn, _, color = self._get_codename(ip)
-                pbar = "█" * min(reach, 8)
-                lines.append(f"[{color}]{cn[:12]:<12}[/] {creds}C→{reach}T [dim]{pbar}[/]")
+            max_flows = max((s["flows"] for _, s in sorted_svcs), default=1) or 1
 
-        # === PROTOCOLS (scaled bars) ===
-        lines.append("\n[bold cyan]═ PROTOS ═[/]")
-        if proto_counts:
-            max_cnt = max(proto_counts.values()) if proto_counts else 1
-            for proto, cnt in sorted(proto_counts.items(), key=lambda x: -x[1])[:7]:
-                indicator = "[red]★[/]" if proto in cred_protos else " "
-                pbar_len = int((cnt / max_cnt) * bar_width) if max_cnt > 0 else 0
-                pbar = "█" * pbar_len
-                lines.append(f"{proto:<6}{indicator}[dim]{pbar}[/]")
+            for (port, svc), data in sorted_svcs:
+                flows = data["flows"]
+                hosts = len(data["hosts"])
+                compromised = "[red]★[/]" if port in cred_ports else ""
+
+                # Bar proportional to flow count
+                bar_len = int((flows / max_flows) * bar_width) if max_flows > 0 else 0
+                bar = "█" * bar_len
+
+                lines.append(f":{port:<5} {svc[:8]:<8} {flows:>3}f {hosts:>2}h [dim]{bar}[/]{compromised}")
         else:
             lines.append("[dim]Collecting...[/]")
-
-        # === EGRESS (with bars) ===
-        lines.append("\n[bold yellow]═ EGRESS ═[/]")
-        if egress_hosts:
-            max_egress = max(e[1] for e in egress_hosts) if egress_hosts else 1
-            for ip, cnt in sorted(egress_hosts, key=lambda x: -x[1])[:4]:
-                cn, _, color = self._get_codename(ip)
-                ebar_len = int((cnt / max_egress) * 10) if max_egress > 0 else 0
-                ebar = "▸" * ebar_len
-                lines.append(f"[{color}]{cn[:12]:<12}[/]→{cnt:>3} [dim]{ebar}[/]")
-        elif egress_set:
-            for p in sorted(egress_set)[:5]:
-                lines.append(f"  [#7ee787]{p}[/]")
-        else:
-            lines.append("[dim]No egress[/]")
-
-        # === ALERTS (with severity bars) ===
-        if alert_types:
-            lines.append("\n[bold red]═ ALERTS ═[/]")
-            for atype, cnt in sorted(alert_types.items(), key=lambda x: -x[1])[:4]:
-                short = atype.replace("_", " ").replace("suspicious ", "")[:18]
-                abar = "!" * min(cnt, 8)
-                lines.append(f"{short:<18} {cnt:>2} [red]{abar}[/]")
-
-        # === CREDENTIALS ===
-        if self.credentials:
-            lines.append("\n[bold #7ee787]═ CREDS ═[/]")
-            for c in self.credentials[:4]:
-                proto = (c.protocol or "?").upper()[:5]
-                user = (c.username or "?")[:12]
-                dom = f"\\{c.domain[:6]}" if c.domain else ""
-                tcn, _, tcol = self._get_codename(c.target_ip) if c.target_ip else ("?", "", "dim")
-                lines.append(f"[bold]{proto}[/] {user}{dom}→[{tcol}]{tcn[:10]}[/]")
-
-        # === SERVICES (discovered ports) ===
-        services_seen = set()
-        for ip, data in self.hosts.items():
-            for port in data.get("services", set()):
-                svc = self._get_service_name(port)
-                if svc:
-                    services_seen.add((port, svc))
-        if services_seen:
-            lines.append("\n[bold #58a6ff]═ SERVICES ═[/]")
-            for port, svc in sorted(services_seen, key=lambda x: x[0])[:5]:
-                hcount = sum(1 for ip, d in self.hosts.items() if port in d.get("services", set()))
-                lines.append(f":{port:<5} [bold]{svc:<8}[/] {hcount}h")
 
         content = "\n".join(lines)
         self.query_one("#intel-content", Static).update(render_markup(content))
