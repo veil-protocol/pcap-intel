@@ -1922,21 +1922,21 @@ class PcapIntelApp(App):
         # v2.0: Feed to timeline
         self._feed_to_timeline("alert", alert=alert)
 
+        # Extract IPs BEFORE conditional (fixes UnboundLocalError when alerts > 100)
+        src_ip = alert.get("src_ip") or alert.get("client") or alert.get("source") or ""
+        target = alert.get("dst_ip") or alert.get("target") or alert.get("destination") or ""
+        if not target:
+            # Try to extract from message like "10.0.0.133 -> 89.144.8.38"
+            msg = alert.get("message", "")
+            if " -> " in msg:
+                parts = msg.split(" -> ")
+                if len(parts) >= 2:
+                    target = parts[1].split()[0][:15]
+
         if len(self.alerts) <= 100:
             t = self.query_one("#alerts-table", DataTable)
             style = "bold white on red" if sev == "CRITICAL" else "bold #d29922" if sev == "HIGH" else "#d29922"
             time_str = alert["time"].strftime("%H:%M:%S")
-            # Try multiple fields for source
-            src_ip = alert.get("src_ip") or alert.get("client") or alert.get("source") or ""
-            # Try multiple fields for target, also parse from message
-            target = alert.get("dst_ip") or alert.get("target") or alert.get("destination") or ""
-            if not target:
-                # Try to extract from message like "10.0.0.133 -> 89.144.8.38"
-                msg = alert.get("message", "")
-                if " -> " in msg:
-                    parts = msg.split(" -> ")
-                    if len(parts) >= 2:
-                        target = parts[1].split()[0][:15]  # Get IP after arrow
             t.add_row(
                 time_str,
                 Text(sev[:4], style=style),
