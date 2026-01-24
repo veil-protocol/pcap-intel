@@ -2426,29 +2426,23 @@ class PcapIntelApp(App):
                 if raw_proto == "ICMP":
                     egress_set.add("ICMP")
 
-        # From HOSTS services
+        # From HOSTS services - count as discovered services
         for ip, data in self.hosts.items():
             for port in data.get("services", set()):
                 label = self._get_service_name(port)
-                if label not in proto_counts:
-                    proto_counts[label] = 0
-                # Don't double count, just ensure it's present
+                # Add to proto_counts - each host with this service adds 1
+                proto_counts[label] = proto_counts.get(label, 0) + 1
 
-        # From ALERTS - extract protocols mentioned
-        alert_types = {}
+        # From ALERTS - extract protocol indicators
         for a in self.alerts:
             atype = a.get("type", "")
-            alert_types[atype] = alert_types.get(atype, 0) + 1
-            # Extract protocols from alert types
             if "icmp" in atype.lower():
                 proto_counts["ICMP"] = proto_counts.get("ICMP", 0) + 1
                 egress_set.add("ICMP")
             if "dns" in atype.lower():
                 proto_counts["DNS"] = proto_counts.get("DNS", 0) + 1
-            if "beacon" in atype.lower():
-                # Beaconing usually over HTTPS
-                if "HTTPS" not in proto_counts:
-                    proto_counts["HTTPS"] = 0
+            if "beacon" in atype.lower() and "HTTPS" not in proto_counts:
+                proto_counts["HTTPS"] = 0
 
         # From CREDS - track compromised protocols
         cred_protos = set()
@@ -2549,14 +2543,6 @@ class PcapIntelApp(App):
                 lines.append(f"  [#7ee787]{p}[/]")
         else:
             lines.append("[dim]No egress[/]")
-
-        # === ALERTS (with severity bars) ===
-        if alert_types:
-            lines.append("\n[bold red]═ ALERTS ═[/]")
-            for atype, cnt in sorted(alert_types.items(), key=lambda x: -x[1])[:4]:
-                short = atype.replace("_", " ").replace("suspicious ", "")[:18]
-                abar = "!" * min(cnt, 8)
-                lines.append(f"{short:<18} {cnt:>2} [red]{abar}[/]")
 
         # === CREDENTIALS ===
         if self.credentials:
