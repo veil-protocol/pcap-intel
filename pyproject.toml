@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pcap-intel"
+version = "2.0.0"
+description = "Real-time network traffic intelligence TUI for red team operators"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "PCAP-Intel Team" }
+]
+keywords = [
+    "pcap",
+    "network",
+    "security",
+    "tui",
+    "red-team",
+    "credential-extraction",
+    "traffic-analysis"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
+]
+dependencies = [
+    "textual>=0.47.0",
+    "rich>=13.0.0",
+    "cryptography>=41.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+pcap-intel = "pcap_intel.streaming.tui:main"
+
+[project.urls]
+Homepage = "https://github.com/pcap-intel/pcap-intel"
+Documentation = "https://github.com/pcap-intel/pcap-intel#readme"
+Repository = "https://github.com/pcap-intel/pcap-intel"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pcap_intel"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
