@@ -6,6 +6,8 @@ Protocol-agnostic authentication extraction engine.
 Registers handlers, runs tshark extractions, correlates messages,
 and builds credentials.
 
+SUPPORTS 38 PROTOCOLS - Complete credential extraction coverage.
+
 Usage:
     from auth_engine import AuthEngine
 
@@ -79,17 +81,111 @@ class AuthEngine:
             self.register_handler(handler)
 
     def register_default_handlers(self):
-        """Register all built-in handlers."""
+        """Register all built-in handlers (38 protocols)."""
+        # === ENTERPRISE PROTOCOLS ===
         from .handlers.ntlm import NTLMHandler
         from .handlers.kerberos import KerberosHandler
         from .handlers.http import HTTPAuthHandler
         from .handlers.ldap import LDAPBindHandler
+        from .handlers.radius import RADIUSAuthHandler
+        from .handlers.tacacs import TACACSAuthHandler
+        from .handlers.diameter import DiameterAuthHandler
+        from .handlers.dcerpc import DCERPCAuthHandler
+
+        # === EMAIL PROTOCOLS ===
+        from .handlers.pop3 import POP3AuthHandler
+        from .handlers.smtp import SMTPAuthHandler
+        from .handlers.imap import IMAPAuthHandler
+        from .handlers.nntp import NNTPAuthHandler
+
+        # === REMOTE ACCESS ===
+        from .handlers.rdp import RDPAuthHandler
+        from .handlers.vnc import VNCAuthHandler
+        from .handlers.telnet import TelnetAuthHandler
+        from .handlers.rcommands import RCommandsAuthHandler
+
+        # === DATABASE PROTOCOLS ===
+        from .handlers.mysql import MySQLAuthHandler
+        from .handlers.postgresql import PostgreSQLAuthHandler
+        from .handlers.mssql import MSSQLAuthHandler
+        from .handlers.mongodb import MongoDBAuthHandler
+        from .handlers.redis import RedisAuthHandler
+
+        # === NETWORK SERVICES ===
+        from .handlers.ftp import FTPAuthHandler
+        from .handlers.snmp import SNMPAuthHandler
+        from .handlers.socks import SOCKSAuthHandler
+        from .handlers.nfs import NFSAuthHandler
+        from .handlers.afp import AFPAuthHandler
+
+        # === WIRELESS/802.1X ===
+        from .handlers.wpa import WPAAuthHandler
+        from .handlers.eap import EAPAuthHandler
+        from .handlers.mschapv2 import MSCHAPv2AuthHandler
+        from .handlers.llmnr import LLMNRAuthHandler
+
+        # === VOIP/STREAMING ===
+        from .handlers.sip import SIPAuthHandler
+        from .handlers.rtsp import RTSPAuthHandler
+        from .handlers.xmpp import XMPPAuthHandler
+
+        # === IOT/INDUSTRIAL ===
+        from .handlers.mqtt import MQTTAuthHandler
+        from .handlers.ipmi import IPMIAuthHandler
+        from .handlers.modbus import ModbusAuthHandler
+        from .handlers.dnp3 import DNP3AuthHandler
+
+        # === CHAT/IRC ===
+        from .handlers.irc import IRCAuthHandler
 
         self.register_handlers(
+            # Enterprise
             NTLMHandler(),
             KerberosHandler(),
             HTTPAuthHandler(),
             LDAPBindHandler(),
+            RADIUSAuthHandler(),
+            TACACSAuthHandler(),
+            DiameterAuthHandler(),
+            DCERPCAuthHandler(),
+            # Email
+            POP3AuthHandler(),
+            SMTPAuthHandler(),
+            IMAPAuthHandler(),
+            NNTPAuthHandler(),
+            # Remote access
+            RDPAuthHandler(),
+            VNCAuthHandler(),
+            TelnetAuthHandler(),
+            RCommandsAuthHandler(),
+            # Database
+            MySQLAuthHandler(),
+            PostgreSQLAuthHandler(),
+            MSSQLAuthHandler(),
+            MongoDBAuthHandler(),
+            RedisAuthHandler(),
+            # Network services
+            FTPAuthHandler(),
+            SNMPAuthHandler(),
+            SOCKSAuthHandler(),
+            NFSAuthHandler(),
+            AFPAuthHandler(),
+            # Wireless/802.1X
+            WPAAuthHandler(),
+            EAPAuthHandler(),
+            MSCHAPv2AuthHandler(),
+            LLMNRAuthHandler(),
+            # VoIP/Streaming
+            SIPAuthHandler(),
+            RTSPAuthHandler(),
+            XMPPAuthHandler(),
+            # IoT/Industrial
+            MQTTAuthHandler(),
+            IPMIAuthHandler(),
+            ModbusAuthHandler(),
+            DNP3AuthHandler(),
+            # Chat/IRC
+            IRCAuthHandler(),
         )
 
     def get_handler(self, protocol: str) -> Optional[AuthProtocolHandler]:
@@ -207,6 +303,11 @@ class AuthEngine:
             "-E", "separator=\t",
             "-E", "occurrence=a",  # Get all occurrences for multi-value fields
         ]
+
+        # Add decode-as rules if handler provides them
+        if hasattr(handler, 'decode_as_rules'):
+            for rule in handler.decode_as_rules:
+                cmd.extend(["-d", rule])
 
         for field in fields:
             cmd.extend(["-e", field])
@@ -344,7 +445,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="AUTH ENGINE - Protocol-agnostic credential extraction"
+        description="AUTH ENGINE - Protocol-agnostic credential extraction (38 protocols)"
     )
     parser.add_argument("pcap", help="PCAP file to analyze")
     parser.add_argument(
@@ -374,7 +475,7 @@ def main():
     engine.register_default_handlers()
 
     print(f"[*] Extracting credentials from {args.pcap}")
-    print(f"[*] Registered protocols: {', '.join(engine.list_protocols())}")
+    print(f"[*] Registered protocols: {len(engine.list_protocols())}")
     print()
 
     credentials = engine.extract_all(args.pcap, args.protocols)
