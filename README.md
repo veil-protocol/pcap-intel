@@ -28,7 +28,7 @@ Real-time network traffic intelligence TUI for red team operators and security a
 ### Requirements
 - Python 3.10+
 - tshark (Wireshark CLI)
-- Root/sudo for live capture
+- Root/sudo for live capture (Sometimes)
 
 ### Install from PyPI
 ```bash
