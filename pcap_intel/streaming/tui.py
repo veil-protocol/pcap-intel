@@ -2,7 +2,7 @@
 """
 PCAP-INTEL TUI v2.0 - Network Situational Awareness Console
 
-Professional operator interface for real-time network intelligence.
+NSA TAO-grade operator interface for real-time network intelligence.
 Works in ANY network environment: AD, Linux, Cloud, K8s, IoT, SCADA.
 
 VERSION 2.0 CAPABILITIES:
@@ -39,7 +39,7 @@ KEYBINDS:
 - r: Refresh
 - q: Quit
 
-Author: PCAP-Intel Team
+Author: TAO Red Team
 """
 
 __version__ = "2.0.0"
@@ -1279,7 +1279,7 @@ def render_network_graph(hosts: dict, flows: dict, dns: dict) -> Text:
 
 
 class PcapIntelApp(App):
-    """PCAP-INTEL Network Intelligence Interface."""
+    """PCAP-INTEL TAO Operator Interface."""
 
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
@@ -1699,7 +1699,7 @@ class PcapIntelApp(App):
         t.cursor_type = "row"
         t.zebra_stripes = True
 
-        # Hosts table - red team intel with codenames
+        # Hosts table - TAO red team intel with codenames
         t = self.query_one("#hosts-table", DataTable)
         t.add_columns("CODENAME", "IP", "OS", "PORTS", "CRED", "IN", "OUT", "PIV", "AGE", "SCR")
         t.cursor_type = "row"
@@ -1780,7 +1780,7 @@ class PcapIntelApp(App):
             self._status_message = None  # Clear after display
         stats.update(t)
 
-        # Update intel panels every 10 packets
+        # Update TAO intel panels every 10 packets
         if self.packets % 10 == 0:
             self._update_intel_panel()
 
@@ -1836,7 +1836,9 @@ class PcapIntelApp(App):
                         self._handle_entity(event.data)
 
                 except Exception as e:
-                    self._log_debug(f"Event handler error: {e}")
+                    import traceback
+                    tb = traceback.format_exc()
+                    self._log_debug(f"Event handler error: {e}\n{tb}")
                     self._last_error = str(e)[:50]
 
         except Exception as e:
@@ -2454,7 +2456,7 @@ class PcapIntelApp(App):
             if c.protocol:
                 cred_protos.add(c.protocol.upper())
 
-        # === COMPUTE INTEL METRICS ===
+        # === COMPUTE TAO METRICS ===
 
         # High-value targets (universal detection - any network environment)
         high_value_targets = []
@@ -2488,104 +2490,176 @@ class PcapIntelApp(App):
 
         # === DISPLAY ===
 
-        # Summary with high-value target indicator
-        crit = sum(1 for a in self.alerts if a.get("severity", "").upper() == "CRITICAL")
-        hvt_indicator = f" [bold #f0883e][T]{len(high_value_targets)}[/]" if high_value_targets else ""
-        lines.append(f"[bold]{len(self.hosts)}[/]H [bold]{len(self.flows)}[/]F [bold]{len(self.credentials)}[/]C [bold red]{crit}[/]A{hvt_indicator}")
+        # Get panel width for bar scaling
+        try:
+            panel = self.query_one("#intel-content", Static)
+            width = panel.size.width if panel.size.width > 0 else 35
+        except:
+            width = 35
+        bar_width = max(8, width - 10)
 
-        # === HIGH-VALUE TARGETS (universal detection) ===
+        # Summary line
+        crit = sum(1 for a in self.alerts if a.get("severity", "").upper() == "CRITICAL")
+        high = sum(1 for a in self.alerts if a.get("severity", "").upper() == "HIGH")
+        hvt_indicator = f" [bold #f0883e]T:{len(high_value_targets)}[/]" if high_value_targets else ""
+        alert_str = f"[bold red]{crit}![/]" if crit else ""
+        alert_str += f"[#ffa657]{high}▲[/]" if high else ""
+        lines.append(f"[bold]{len(self.hosts)}[/]H [bold]{len(self.flows)}[/]F [bold]{len(self.credentials)}[/]C {alert_str}{hvt_indicator}")
+        lines.append(f"[dim]{'─' * width}[/]")
+
+        # === HIGH-VALUE TARGETS ===
         if high_value_targets:
-            lines.append("\n[bold #f0883e]═ TARGETS ═[/]")
+            lines.append("[bold #f0883e]═ TARGETS ═[/]")
             for ip, role, icon, creds, desc in high_value_targets[:3]:
                 cn, _, color = self._get_codename(ip)
-                cred_str = f"[red]★{creds}[/]" if creds else ""
-                lines.append(f"{icon}{role}: [{color}]{cn[:12]}[/]{cred_str}")
+                cred_str = f" [red]★{creds}[/]" if creds else ""
+                lines.append(f"{icon}[bold]{role}[/] [{color}]{cn[:14]}[/]{cred_str}")
 
-        # === PIVOT POINTS (lateral movement launchpads) ===
+        # === PIVOT POINTS ===
         if pivot_points:
             lines.append("\n[bold #d29922]═ PIVOTS ═[/]")
             for ip, creds, reach in sorted(pivot_points, key=lambda x: x[1]*x[2], reverse=True)[:3]:
                 cn, _, color = self._get_codename(ip)
-                lines.append(f"[{color}]{cn[:10]}[/] {creds}C→{reach}T")
+                pbar = "█" * min(reach, 8)
+                lines.append(f"[{color}]{cn[:12]:<12}[/] {creds}C→{reach}T [dim]{pbar}[/]")
 
-        # === PROTOCOLS (everything seen) ===
+        # === PROTOCOLS (scaled bars) ===
         lines.append("\n[bold cyan]═ PROTOS ═[/]")
         if proto_counts:
-            for proto, cnt in sorted(proto_counts.items(), key=lambda x: -x[1])[:5]:
-                indicator = "[red]★[/]" if proto in cred_protos else ""
-                bar = "█" * min(cnt, 5) if cnt > 0 else ""
-                lines.append(f"{proto:6}{bar}{indicator}")
+            max_cnt = max(proto_counts.values()) if proto_counts else 1
+            for proto, cnt in sorted(proto_counts.items(), key=lambda x: -x[1])[:7]:
+                indicator = "[red]★[/]" if proto in cred_protos else " "
+                pbar_len = int((cnt / max_cnt) * bar_width) if max_cnt > 0 else 0
+                pbar = "█" * pbar_len
+                lines.append(f"{proto:<6}{indicator}[dim]{pbar}[/]")
         else:
             lines.append("[dim]Collecting...[/]")
 
-        # === EGRESS (C2/exfil channels) ===
+        # === EGRESS (with bars) ===
         lines.append("\n[bold yellow]═ EGRESS ═[/]")
         if egress_hosts:
-            for ip, cnt in sorted(egress_hosts, key=lambda x: -x[1])[:2]:
+            max_egress = max(e[1] for e in egress_hosts) if egress_hosts else 1
+            for ip, cnt in sorted(egress_hosts, key=lambda x: -x[1])[:4]:
                 cn, _, color = self._get_codename(ip)
-                lines.append(f"[{color}]{cn[:10]}[/]→{cnt}")
+                ebar_len = int((cnt / max_egress) * 10) if max_egress > 0 else 0
+                ebar = "▸" * ebar_len
+                lines.append(f"[{color}]{cn[:12]:<12}[/]→{cnt:>3} [dim]{ebar}[/]")
         elif egress_set:
-            lines.append(" ".join(f"[#7ee787]{p}[/]" for p in sorted(egress_set)[:5]))
+            for p in sorted(egress_set)[:5]:
+                lines.append(f"  [#7ee787]{p}[/]")
         else:
             lines.append("[dim]No egress[/]")
 
-        # === DETECTIONS (what's firing) ===
+        # === ALERTS (with severity bars) ===
         if alert_types:
             lines.append("\n[bold red]═ ALERTS ═[/]")
-            for atype, cnt in sorted(alert_types.items(), key=lambda x: -x[1])[:3]:
-                short = atype.replace("_", " ").replace("suspicious ", "")[:12]
-                lines.append(f"{short}: {cnt}")
+            for atype, cnt in sorted(alert_types.items(), key=lambda x: -x[1])[:4]:
+                short = atype.replace("_", " ").replace("suspicious ", "")[:18]
+                abar = "!" * min(cnt, 8)
+                lines.append(f"{short:<18} {cnt:>2} [red]{abar}[/]")
+
+        # === CREDENTIALS ===
+        if self.credentials:
+            lines.append("\n[bold #7ee787]═ CREDS ═[/]")
+            for c in self.credentials[:4]:
+                proto = (c.protocol or "?").upper()[:5]
+                user = (c.username or "?")[:12]
+                dom = f"\\{c.domain[:6]}" if c.domain else ""
+                tcn, _, tcol = self._get_codename(c.target_ip) if c.target_ip else ("?", "", "dim")
+                lines.append(f"[bold]{proto}[/] {user}{dom}→[{tcol}]{tcn[:10]}[/]")
+
+        # === SERVICES (discovered ports) ===
+        services_seen = set()
+        for ip, data in self.hosts.items():
+            for port in data.get("services", set()):
+                svc = self._get_service_name(port)
+                if svc:
+                    services_seen.add((port, svc))
+        if services_seen:
+            lines.append("\n[bold #58a6ff]═ SERVICES ═[/]")
+            for port, svc in sorted(services_seen, key=lambda x: x[0])[:5]:
+                hcount = sum(1 for ip, d in self.hosts.items() if port in d.get("services", set()))
+                lines.append(f":{port:<5} [bold]{svc:<8}[/] {hcount}h")
 
         content = "\n".join(lines)
         self.query_one("#intel-content", Static).update(render_markup(content))
 
     def _render_timeline_panel(self) -> None:
-        """Render behavioral timeline in intel panel (v2.0)."""
+        """Render behavioral timeline in intel panel (v2.0) - full width."""
         lines = []
         summary = self._timeline.get_summary()
 
-        # Header
-        lines.append("[bold #7ee787]═ TIMELINE ═[/]")
-        lines.append(f"Events: [bold]{summary.get('total_events', 0)}[/]")
+        # Get panel width
+        try:
+            panel = self.query_one("#intel-content", Static)
+            width = panel.size.width if panel.size.width > 0 else 50
+        except:
+            width = 50
 
-        # Severity breakdown
+        # Stats
         crit = summary.get('critical_count', 0)
+        high = summary.get('high_count', 0)
         lat = summary.get('lateral_count', 0)
         creds = summary.get('credential_count', 0)
         beacons = summary.get('beacon_count', 0)
+        total = summary.get('total_events', 0)
 
-        if crit > 0:
-            lines.append(f"[bold red]Critical: {crit}[/]")
-        if lat > 0:
-            lines.append(f"[bold #ffa657]Lateral: {lat}[/]")
-        if creds > 0:
-            lines.append(f"[bold #f85149]Creds: {creds}[/]")
-        if beacons > 0:
-            lines.append(f"[bold #a371f7]C2 Beacons: {beacons}[/]")
+        # Header with stats inline
+        stats = f"{total}ev"
+        if crit:
+            stats += f" [bold red]{crit}![/]"
+        if high:
+            stats += f" [#ffa657]{high}▲[/]"
+        if lat:
+            stats += f" [#ffa657]{lat}L[/]"
+        if creds:
+            stats += f" [#f85149]{creds}C[/]"
+        if beacons:
+            stats += f" [#a371f7]{beacons}B[/]"
 
-        # Recent events
-        if self._timeline.events:
-            lines.append("\n[bold cyan]═ RECENT ═[/]")
-            for event in self._timeline.events[-8:]:
-                time_str = event.timestamp.strftime("%H:%M:%S")
-                etype = event.activity_type.value[:4].upper()
+        lines.append(f"[bold #7ee787]═ TIMELINE[/] {stats}")
+        lines.append(f"[dim]{'─' * width}[/]")
 
-                # Color by type
-                if event.severity == "critical":
-                    style = "bold red"
-                elif event.severity == "high":
-                    style = "bold #ffa657"
-                elif etype == "LATE":
-                    style = "#ffa657"
-                elif etype == "CRED":
-                    style = "#f85149"
-                elif etype == "C2_B":
-                    style = "#a371f7"
-                else:
-                    style = "dim"
+        # Column layout - fill full width
+        col_time = 8
+        col_sev = 2
+        col_type = 5
+        col_flow = width - col_time - col_sev - col_type - 3  # remaining space
 
-                desc = event.description[:25] if event.description else ""
-                lines.append(f"[{style}]{time_str} {etype}[/] {desc}")
+        # Events
+        max_events = 12
+        recent = list(reversed(self._timeline.events[-max_events:])) if self._timeline.events else []
+
+        for event in recent:
+            ts = event.timestamp.strftime("%H:%M:%S")
+
+            # Severity
+            if event.severity == "critical":
+                sev = "[bold red]![/]"
+            elif event.severity == "high":
+                sev = "[#ffa657]▲[/]"
+            else:
+                sev = "[dim]·[/]"
+
+            # Type with color
+            etype = event.activity_type.value[:4].upper()
+            tcol = {"CRED": "#f85149", "LATE": "#ffa657", "C2_B": "#a371f7",
+                    "EXFI": "#d29922", "ALER": "#f85149", "DNS": "#58a6ff"}.get(etype, "dim")
+
+            # Flow: src→dst:port - USE FULL REMAINING WIDTH
+            src = (event.codenames[0] or event.src_ip or "─")[:12]
+            dst = (event.codenames[1] or event.dst_ip or "─")[:12]
+            port = self._timeline.SERVICE_MAP.get(event.port, str(event.port) if event.port else "")[:6]
+
+            flow = f"{src}→{dst}"
+            if port:
+                flow += f":{port}"
+            flow = flow[:col_flow].ljust(col_flow)  # Pad to fill width
+
+            lines.append(f"[dim]{ts}[/] {sev} [{tcol}]{etype:<4}[/] {flow}")
+
+        if not recent:
+            lines.append("[dim italic]  Waiting for events...[/]")
 
         content = "\n".join(lines)
         self.query_one("#intel-content", Static).update(render_markup(content))
@@ -4130,19 +4204,14 @@ def run_tui(interface: str = None, pcap_file: str = None, bpf_filter: str = "", 
     app.run()
 
 
-def main():
-    """Entry point for console script."""
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="PCAP-INTEL TUI v2.0 - Network Intelligence")
+    parser = argparse.ArgumentParser(description="PCAP-INTEL TUI")
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("-i", "--interface", help="Network interface for live capture")
-    source.add_argument("-r", "--pcap", dest="pcap_file", help="PCAP file to analyze")
+    source.add_argument("-i", "--interface", help="Network interface")
+    source.add_argument("-r", "--pcap", dest="pcap_file", help="PCAP file")
     parser.add_argument("-f", "--filter", dest="bpf_filter", default="", help="BPF filter")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")
 
     args = parser.parse_args()
     run_tui(interface=args.interface, pcap_file=args.pcap_file, bpf_filter=args.bpf_filter, debug=args.debug)
-
-
-if __name__ == "__main__":
-    main()
