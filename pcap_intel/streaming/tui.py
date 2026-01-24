@@ -4056,6 +4056,7 @@ class PcapIntelApp(App):
             # Apply loaded data
             self.hosts = data.get("hosts", {})
             self.flows = data.get("flows", {})
+            self.credentials = data.get("credentials", [])  # FIX: Load credentials
             self.dns_resolutions = data.get("dns_resolutions", {})
             self.alerts = data.get("alerts", [])
             self.compromised_hosts = data.get("compromised_hosts", set())
