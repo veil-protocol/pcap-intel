@@ -8,6 +8,16 @@ Real-time network traffic intelligence TUI for red team operators and security a
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
+## Screenshots
+
+### Main Dashboard
+![Main TUI Dashboard](docs/images/tui-main.png)
+*Multi-panel real-time analysis: Flows, DNS, Hosts, Credentials, Alerts, and Intel summary with unified service metrics*
+
+### Network Graph
+![Network Graph View](docs/images/tui-graph.png)
+*ASCII network topology showing internal/external hosts with connection mapping and compromise indicators*
+
 ## Features
 
 ### Core Capabilities
