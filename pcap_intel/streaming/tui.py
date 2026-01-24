@@ -2443,36 +2443,45 @@ class PcapIntelApp(App):
             width = panel.size.width if panel.size.width > 0 else 35
         except:
             width = 35
-        bar_width = max(8, width - 10)
+
+        # Bar width = total width - prefix (proto 6 + count 4 + spaces 2) = width - 12
+        proto_bar_width = max(4, width - 14)
+        # Service bar width = total width - prefix (port 6 + svc 8 + count 4 + spaces) = width - 20
+        svc_bar_width = max(4, width - 22)
 
         # Summary line
         lines.append(f"[bold]{len(self.hosts)}[/]H [bold]{len(self.flows)}[/]F [bold]{len(self.credentials)}[/]C")
-        lines.append(f"[dim]{'─' * width}[/]")
+        lines.append(f"[dim]{'─' * min(width, 40)}[/]")
 
-        # === PROTOCOLS (scaled bars) ===
+        # === PROTOCOLS (scaled bars on same line) ===
         lines.append("[bold cyan]═ PROTOCOLS ═[/]")
         if proto_counts:
             max_cnt = max(proto_counts.values()) if proto_counts else 1
             for proto, cnt in sorted(proto_counts.items(), key=lambda x: -x[1])[:10]:
-                indicator = "[red]★[/]" if proto in cred_protos else " "
-                pbar_len = int((cnt / max_cnt) * bar_width) if max_cnt > 0 else 0
+                indicator = "[red]★[/]" if proto in cred_protos else ""
+                pbar_len = int((cnt / max_cnt) * proto_bar_width) if max_cnt > 0 else 0
                 pbar = "█" * pbar_len
-                lines.append(f"{proto:<8}{indicator}{cnt:>4} [dim]{pbar}[/]")
+                lines.append(f"{proto[:6]:<6}{cnt:>4} [dim]{pbar}[/]{indicator}")
         else:
             lines.append("[dim]Collecting...[/]")
 
-        # === SERVICES (discovered ports) ===
-        services_seen = set()
+        # === SERVICES (with host count bars) ===
+        services_seen = {}
         for ip, data in self.hosts.items():
             for port in data.get("services", set()):
                 svc = self._get_service_name(port)
                 if svc:
-                    services_seen.add((port, svc))
+                    if (port, svc) not in services_seen:
+                        services_seen[(port, svc)] = 0
+                    services_seen[(port, svc)] += 1
+
         lines.append("\n[bold #58a6ff]═ SERVICES ═[/]")
         if services_seen:
-            for port, svc in sorted(services_seen, key=lambda x: x[0])[:10]:
-                hcount = sum(1 for ip, d in self.hosts.items() if port in d.get("services", set()))
-                lines.append(f":{port:<5} [bold]{svc:<10}[/] {hcount}h")
+            max_hcount = max(services_seen.values()) if services_seen else 1
+            for (port, svc), hcount in sorted(services_seen.items(), key=lambda x: -x[1])[:10]:
+                sbar_len = int((hcount / max_hcount) * svc_bar_width) if max_hcount > 0 else 0
+                sbar = "▪" * sbar_len
+                lines.append(f":{port:<5} {svc[:8]:<8} {hcount:>2}h [dim]{sbar}[/]")
         else:
             lines.append("[dim]Collecting...[/]")
 
