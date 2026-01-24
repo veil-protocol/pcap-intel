@@ -2396,44 +2396,36 @@ class PcapIntelApp(App):
 
         lines = []
 
-        # === AGGREGATE FROM ALL DATA SOURCES ===
+        # === AGGREGATE: Unified service metrics ===
+        # Combines: flows, host services, alerts into single view
+        # Key: (port, service_name) -> {flows: N, hosts: set()}
 
-        # PROTOCOLS: Combine flows + alerts + services
-        proto_counts = {}
+        services = {}  # (port, name) -> {"flows": int, "hosts": set()}
 
-        # From FLOWS
+        # From FLOWS - count traffic per service
         for f in self.flows.values():
             port = f.get("port", 0)
-            raw_proto = f.get("proto", "").upper()
+            if port:
+                svc = self._get_service_name(port)
+                key = (port, svc)
+                if key not in services:
+                    services[key] = {"flows": 0, "hosts": set()}
+                services[key]["flows"] += 1
 
-            # Get service name from port
-            label = self._get_service_name(port) if port else None
-            if label:
-                proto_counts[label] = proto_counts.get(label, 0) + 1
-
-            # Also count raw L4 protocols (ICMP especially)
-            if raw_proto == "ICMP":
-                proto_counts["ICMP"] = proto_counts.get("ICMP", 0) + 1
-
-        # From HOSTS services - count as discovered services
+        # From HOSTS - track which hosts have each service
         for ip, data in self.hosts.items():
             for port in data.get("services", set()):
-                label = self._get_service_name(port)
-                proto_counts[label] = proto_counts.get(label, 0) + 1
+                svc = self._get_service_name(port)
+                key = (port, svc)
+                if key not in services:
+                    services[key] = {"flows": 0, "hosts": set()}
+                services[key]["hosts"].add(ip)
 
-        # From ALERTS - extract protocol indicators
-        for a in self.alerts:
-            atype = a.get("type", "")
-            if "icmp" in atype.lower():
-                proto_counts["ICMP"] = proto_counts.get("ICMP", 0) + 1
-            if "dns" in atype.lower():
-                proto_counts["DNS"] = proto_counts.get("DNS", 0) + 1
-
-        # From CREDS - track compromised protocols
-        cred_protos = set()
+        # From CREDS - track compromised services
+        cred_ports = set()
         for c in self.credentials:
-            if c.protocol:
-                cred_protos.add(c.protocol.upper())
+            if c.target_port:
+                cred_ports.add(c.target_port)
 
         # === DISPLAY ===
 
@@ -2444,44 +2436,35 @@ class PcapIntelApp(App):
         except:
             width = 35
 
-        # Bar width = total width - prefix (proto 6 + count 4 + spaces 2) = width - 12
-        proto_bar_width = max(4, width - 14)
-        # Service bar width = total width - prefix (port 6 + svc 8 + count 4 + spaces) = width - 20
-        svc_bar_width = max(4, width - 22)
+        # Bar width = width - prefix (port 6 + svc 8 + flows 4 + hosts 3 + spaces 4)
+        bar_width = max(4, width - 26)
 
         # Summary line
         lines.append(f"[bold]{len(self.hosts)}[/]H [bold]{len(self.flows)}[/]F [bold]{len(self.credentials)}[/]C")
         lines.append(f"[dim]{'─' * min(width, 40)}[/]")
 
-        # === PROTOCOLS (scaled bars on same line) ===
-        lines.append("[bold cyan]═ PROTOCOLS ═[/]")
-        if proto_counts:
-            max_cnt = max(proto_counts.values()) if proto_counts else 1
-            for proto, cnt in sorted(proto_counts.items(), key=lambda x: -x[1])[:10]:
-                indicator = "[red]★[/]" if proto in cred_protos else ""
-                pbar_len = int((cnt / max_cnt) * proto_bar_width) if max_cnt > 0 else 0
-                pbar = "█" * pbar_len
-                lines.append(f"{proto[:6]:<6}{cnt:>4} [dim]{pbar}[/]{indicator}")
-        else:
-            lines.append("[dim]Collecting...[/]")
+        # === SERVICES (unified view) ===
+        lines.append("[bold cyan]═ SERVICES ═[/]")
+        if services:
+            # Sort by total activity (flows + host count)
+            sorted_svcs = sorted(
+                services.items(),
+                key=lambda x: x[1]["flows"] + len(x[1]["hosts"]) * 10,
+                reverse=True
+            )[:15]
 
-        # === SERVICES (with host count bars) ===
-        services_seen = {}
-        for ip, data in self.hosts.items():
-            for port in data.get("services", set()):
-                svc = self._get_service_name(port)
-                if svc:
-                    if (port, svc) not in services_seen:
-                        services_seen[(port, svc)] = 0
-                    services_seen[(port, svc)] += 1
+            max_flows = max((s["flows"] for _, s in sorted_svcs), default=1) or 1
 
-        lines.append("\n[bold #58a6ff]═ SERVICES ═[/]")
-        if services_seen:
-            max_hcount = max(services_seen.values()) if services_seen else 1
-            for (port, svc), hcount in sorted(services_seen.items(), key=lambda x: -x[1])[:10]:
-                sbar_len = int((hcount / max_hcount) * svc_bar_width) if max_hcount > 0 else 0
-                sbar = "▪" * sbar_len
-                lines.append(f":{port:<5} {svc[:8]:<8} {hcount:>2}h [dim]{sbar}[/]")
+            for (port, svc), data in sorted_svcs:
+                flows = data["flows"]
+                hosts = len(data["hosts"])
+                compromised = "[red]★[/]" if port in cred_ports else ""
+
+                # Bar proportional to flow count
+                bar_len = int((flows / max_flows) * bar_width) if max_flows > 0 else 0
+                bar = "█" * bar_len
+
+                lines.append(f":{port:<5} {svc[:8]:<8} {flows:>3}f {hosts:>2}h [dim]{bar}[/]{compromised}")
         else:
             lines.append("[dim]Collecting...[/]")
 
