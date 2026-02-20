@@ -4091,14 +4091,30 @@ def run_tui(interface: str = None, pcap_file: str = None, bpf_filter: str = "", 
     app.run()
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for pcap-intel command."""
     import argparse
-    parser = argparse.ArgumentParser(description="PCAP-INTEL TUI")
+    parser = argparse.ArgumentParser(
+        description="PCAP-INTEL TUI v2.0 - Network Traffic Intelligence",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  pcap-intel -i eth0              # Live capture on eth0
+  pcap-intel -r capture.pcap      # Analyze pcap file
+  pcap-intel -i eth0 -f "port 445" # Filter to SMB traffic
+  pcap-intel -r test.pcap -d      # Debug mode
+        """
+    )
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("-i", "--interface", help="Network interface")
-    source.add_argument("-r", "--pcap", dest="pcap_file", help="PCAP file")
-    parser.add_argument("-f", "--filter", dest="bpf_filter", default="", help="BPF filter")
+    source.add_argument("-i", "--interface", help="Network interface for live capture")
+    source.add_argument("-r", "--pcap", dest="pcap_file", help="PCAP file to analyze")
+    parser.add_argument("-f", "--filter", dest="bpf_filter", default="", help="BPF filter expression")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument("-v", "--version", action="version", version=f"pcap-intel {__version__} ({__codename__})")
 
     args = parser.parse_args()
     run_tui(interface=args.interface, pcap_file=args.pcap_file, bpf_filter=args.bpf_filter, debug=args.debug)
+
+
+if __name__ == "__main__":
+    main()
