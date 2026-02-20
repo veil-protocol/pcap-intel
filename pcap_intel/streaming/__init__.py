@@ -17,7 +17,7 @@ Usage:
 """
 
 from .pipeline import LivePipeline, PipelineEvent, EventType
-from .capture import LiveCapture
+from .capture import LiveCapture, CapturedPacket
 from .processor import StreamingProcessor
 from .auth_stream import StreamingAuthEngine
 from .entity_stream import StreamingEntityExtractor
@@ -27,6 +27,7 @@ __all__ = [
     "PipelineEvent",
     "EventType",
     "LiveCapture",
+    "CapturedPacket",
     "StreamingProcessor",
     "StreamingAuthEngine",
     "StreamingEntityExtractor",
