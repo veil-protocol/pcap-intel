@@ -190,20 +190,44 @@ class StreamingEntityExtractor:
         dns_name = None
         dns_answers = []
 
-        # Try different field names tshark might use
-        for name_field in ["dns.qry.name", "dns.resp.name", "dns.dns.qry.name"]:
+        # Try different field names tshark might use (various versions/formats)
+        name_fields = [
+            "dns.qry.name", "dns.resp.name", "dns.dns.qry.name",
+            "dns.qry_name", "dns.resp_name", "Queries.dns.qry.name",
+        ]
+        for name_field in name_fields:
             if name_field in fields:
                 dns_name = fields[name_field]
                 break
 
-        # Get A records
-        for addr_field in ["dns.a", "dns.aaaa", "dns.dns.a"]:
+        # Fallback: search for any field ending with qry.name
+        if not dns_name:
+            for key, val in fields.items():
+                if key.endswith("qry.name") and val:
+                    dns_name = val
+                    break
+
+        # Get A records - multiple possible field names
+        addr_fields = [
+            "dns.a", "dns.aaaa", "dns.dns.a", "dns.dns.aaaa",
+            "Answers.dns.a", "Answers.dns.aaaa",
+        ]
+        for addr_field in addr_fields:
             if addr_field in fields:
                 addr = fields[addr_field]
                 if isinstance(addr, list):
                     dns_answers.extend(addr)
                 else:
                     dns_answers.append(addr)
+
+        # Fallback: search for any field that looks like an IP answer
+        if not dns_answers:
+            for key, val in fields.items():
+                if ("dns.a" in key or "dns.aaaa" in key) and val:
+                    if isinstance(val, list):
+                        dns_answers.extend(val)
+                    else:
+                        dns_answers.append(val)
 
         if dns_name and dns_answers:
             dns_key = f"{dns_name}:{','.join(dns_answers)}"

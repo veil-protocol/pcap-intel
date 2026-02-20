@@ -2133,13 +2133,18 @@ class PcapIntelApp(App):
         # Validate IP - reject garbage
         if not is_valid_ip(ip) or is_noise_ip(ip):
             return
-        if ip not in self.hosts:
+        is_new = ip not in self.hosts
+        if is_new:
             self.hosts[ip] = {"os": "?", "services": set(), "creds": [], "flows": [], "dns": None, "first_seen": datetime.now()}
         # Copy any attributes
         if hasattr(entity, 'attributes') and entity.attributes:
             for k, v in entity.attributes.items():
                 if k not in self.hosts[ip] or self.hosts[ip].get(k) == "?":
                     self.hosts[ip][k] = v
+
+        # Update table periodically (every new host or every 5th host)
+        if is_new and (len(self.hosts) <= 10 or len(self.hosts) % 5 == 0):
+            self._update_hosts_table()
 
     def _update_flows_table(self) -> None:
         if not self.flows:
