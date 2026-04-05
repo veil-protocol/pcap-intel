@@ -227,6 +227,24 @@ class LiveCapture:
             raise RuntimeError("tshark not found. Install Wireshark/tshark.")
         return tshark
 
+    # Default BPF filter for live capture — auth-relevant ports only.
+    # Excludes DNS (udp/53) and TLS-only (443) to avoid JSON throughput bottleneck.
+    # Users can override with -f to add DNS, HTTPS, or capture everything.
+    DEFAULT_LIVE_BPF = (
+        "tcp port 21 or tcp port 23 or tcp port 25 or "                      # FTP, Telnet, SMTP
+        "tcp port 80 or tcp port 110 or tcp port 143 or tcp port 389 or "    # HTTP, POP3, IMAP, LDAP
+        "tcp port 445 or tcp port 636 or "                                    # SMB, LDAPS
+        "tcp port 1433 or tcp port 3306 or tcp port 5432 or "               # MSSQL, MySQL, PostgreSQL
+        "tcp port 3389 or tcp port 5900 or tcp port 6379 or "               # RDP, VNC, Redis
+        "tcp port 8080 or tcp port 27017 or tcp port 1883 or "              # HTTP-alt, MongoDB, MQTT
+        "tcp port 6667 or tcp port 5222 or tcp port 554 or "                # IRC, XMPP, RTSP
+        "tcp port 5060 or tcp port 1080 or tcp port 119 or "                # SIP, SOCKS, NNTP
+        "tcp port 548 or tcp port 623 or tcp port 5985 or "                 # AFP, IPMI, WinRM
+        "udp port 88 or udp port 161 or udp port 137 or "                   # Kerberos, SNMP, NetBIOS
+        "udp port 1812 or udp port 49 or udp port 5355 or "                 # RADIUS, TACACS+, LLMNR
+        "udp port 623 or udp port 5060"                                      # IPMI, SIP
+    )
+
     def _build_command(self) -> List[str]:
         """Build tshark command."""
         tshark = self._find_tshark()
@@ -242,6 +260,9 @@ class LiveCapture:
 
         if self.bpf_filter:
             cmd.extend(["-f", self.bpf_filter])
+        elif self.interface:
+            # Apply default filter on live capture to avoid drowning in noise
+            cmd.extend(["-f", self.DEFAULT_LIVE_BPF])
 
         return cmd
 
