@@ -1683,7 +1683,7 @@ class PcapIntelApp(App):
 
         # Credentials table
         t = self.query_one("#creds-table", DataTable)
-        t.add_columns("PROTO", "USER", "DOMAIN", "TARGET")
+        t.add_columns("PROTO", "USER", "SECRET", "TARGET")
         t.cursor_type = "row"
         t.zebra_stripes = True
 
@@ -1901,16 +1901,29 @@ class PcapIntelApp(App):
                     )
 
         if len(self.credentials) <= 200:
+            # Extract displayable secret (password, hash prefix, or token)
+            cred_data = cred.credential_data if hasattr(cred, 'credential_data') and cred.credential_data else {}
+            if cred_data.get("password"):
+                secret = cred_data["password"]
+                secret_style = "bold red on yellow"
+            elif cred.hashcat_format:
+                secret = cred.hashcat_format[:25] + "..."
+                secret_style = "bold #d29922"
+            elif cred_data.get("token"):
+                secret = cred_data["token"][:25] + "..."
+                secret_style = "bold #f85149"
+            else:
+                secret = cred.domain[:15] if cred.domain else "?"
+                secret_style = "dim"
+
             t = self.query_one("#creds-table", DataTable)
             t.add_row(
                 Text(cred.protocol.upper()[:6], style="bold #f85149"),
                 cred.username[:15] if cred.username else "?",
-                cred.domain[:15] if cred.domain else "?",
+                Text(secret[:30], style=secret_style),
                 f"{cred.target_ip}:{cred.target_port}" if cred.target_ip else "?",
             )
-            # Update stats for first few creds
-            if len(self.credentials) <= 5:
-                self._update_stats()
+            self._update_stats()
 
     def _handle_alert(self, alert) -> None:
         sev = alert.get("severity", "info").upper()
@@ -2295,7 +2308,7 @@ class PcapIntelApp(App):
             elif cred_count:
                 codename_display = f"{hvt_prefix}★{codename}"
                 codename_style = "bold #f85149"
-            elif cat == "HVT":
+            elif category == "HVT":
                 codename_display = f"{hvt_prefix}{codename}"
                 codename_style = "bold #f0883e"
             else:

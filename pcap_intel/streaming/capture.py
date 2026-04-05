@@ -56,6 +56,13 @@ class CapturedPacket:
             frame_time = frame.get("frame.time_epoch", "0")
             frame_num = int(frame.get("frame.number", 0))
 
+            # Parse timestamp - tshark 4.x outputs ISO format, older versions output float
+            try:
+                ts = float(frame_time)
+                timestamp = datetime.fromtimestamp(ts)
+            except (ValueError, TypeError):
+                timestamp = datetime.fromisoformat(str(frame_time).replace("Z", "+00:00"))
+
             # Get IP info
             ip = layers.get("ip", {})
             src_ip = ip.get("ip.src", "")
@@ -82,7 +89,7 @@ class CapturedPacket:
             fields = cls._flatten_layers(layers)
 
             return cls(
-                timestamp=datetime.fromtimestamp(float(frame_time)),
+                timestamp=timestamp,
                 protocol=protocol,
                 src_ip=src_ip,
                 dst_ip=dst_ip,
@@ -97,19 +104,24 @@ class CapturedPacket:
     @staticmethod
     def _detect_protocol(layers: Dict[str, Any]) -> str:
         """Detect the high-level protocol from layers."""
-        # Check for specific auth protocols first
-        if "ntlmssp" in layers:
+        # Serialize layer keys to string for deep search — auth protocols
+        # are often nested inside transport layers (e.g. NTLM inside SMB)
+        layers_str = str(layers)
+
+        # Check for auth protocols first (highest priority)
+        if "ntlmssp" in layers or "ntlmssp" in layers_str:
             return "ntlm"
-        if "kerberos" in layers:
+        if "kerberos" in layers or "kerberos" in layers_str:
             return "kerberos"
         if "ldap" in layers:
             return "ldap"
-        if "smb" in layers or "smb2" in layers:
-            return "smb"
-        if "http" in layers:
-            return "http"
+        # Service protocols
         if "ftp" in layers:
             return "ftp"
+        if "http" in layers:
+            return "http"
+        if "smb" in layers or "smb2" in layers:
+            return "smb"
         if "ssh" in layers:
             return "ssh"
         if "dns" in layers:
@@ -134,7 +146,13 @@ class CapturedPacket:
 
     @staticmethod
     def _flatten_layers(layers: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
-        """Flatten nested tshark layers into dot-notation dict."""
+        """
+        Flatten nested tshark layers into a dict keyed by the canonical field name.
+
+        tshark JSON nests fields deeply (e.g. smb2 > security_blob > ntlmssp).
+        We store each field under BOTH its full path and its short canonical name
+        (e.g. "ntlmssp.messagetype") so protocol handlers can find them.
+        """
         result = {}
         for key, value in layers.items():
             full_key = f"{prefix}.{key}" if prefix else key
@@ -142,6 +160,11 @@ class CapturedPacket:
                 result.update(CapturedPacket._flatten_layers(value, full_key))
             else:
                 result[full_key] = value
+                # Also store under the short key (last dotted segment that looks
+                # like a real tshark field, e.g. "ntlmssp.messagetype")
+                # This handles deeply nested auth fields inside SMB/SPNEGO/etc.
+                if "." in key:
+                    result[key] = value
         return result
 
 
@@ -278,12 +301,16 @@ class LiveCapture:
     async def stop(self):
         """Stop the capture."""
         self._running = False
-        if self._process:
+        proc = self._process
+        self._process = None
+        if proc:
             try:
-                self._process.terminate()
-                await asyncio.wait_for(self._process.wait(), timeout=2.0)
+                proc.terminate()
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
             except asyncio.TimeoutError:
-                self._process.kill()
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
             except Exception:
                 pass
-            self._process = None
