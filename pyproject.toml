@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pcap-intel"
-version = "2.0.0"
+version = "2.1.0"
 description = "Real-time network traffic intelligence TUI for red team operators"
 readme = "README.md"
 license = "MIT"
@@ -52,9 +52,9 @@ dev = [
 pcap-intel = "pcap_intel.streaming.tui:main"
 
 [project.urls]
-Homepage = "https://github.com/pcap-intel/pcap-intel"
-Documentation = "https://github.com/pcap-intel/pcap-intel#readme"
-Repository = "https://github.com/pcap-intel/pcap-intel"
+Homepage = "https://github.com/veil-protocol/pcap-intel"
+Documentation = "https://github.com/veil-protocol/pcap-intel#readme"
+Repository = "https://github.com/veil-protocol/pcap-intel"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pcap_intel"]
