@@ -570,9 +570,16 @@ class StreamingAuthEngine:
             self.sessions_timed_out += 1
 
         # Also clean old FTP sessions
-        expired_ftp = [k for k, s in self._ftp_sessions.items()
-                       if hasattr(s.get("timestamp"), "timestamp") and
-                       (datetime.now() - s["timestamp"]).total_seconds() > self.session_timeout]
+        expired_ftp = []
+        for k, s in self._ftp_sessions.items():
+            try:
+                ts = s.get("timestamp")
+                if ts and hasattr(ts, 'timestamp'):
+                    age = now.timestamp() - ts.timestamp()
+                    if age > self.session_timeout:
+                        expired_ftp.append(k)
+            except Exception:
+                expired_ftp.append(k)
         for k in expired_ftp:
             del self._ftp_sessions[k]
 
